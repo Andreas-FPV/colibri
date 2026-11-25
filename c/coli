@@ -768,8 +768,12 @@ def env_for_engine(a, arch, plan=None):
         elif env.get("COLI_CUDA") == "1" and "K3_CUDA" not in explicit_env:
             env["K3_CUDA"] = "1"
     # Intel NPU lane (docs/intel-npu.md): explicit request only, as --xdna for glm in env_for.
-    if getattr(a, "npu", False): env["COLI_NPU"] = "1"
-    if getattr(a, "npu_stats", False): env["COLI_NPU_STATS"] = "1"
+    # Only the inkling engine has it; any other one is told rather than left to ignore it.
+    if getattr(a, "npu", False):
+        if arch == "inkling": env["COLI_NPU"] = "1"
+        else: print(f"[NPU] requested, but the lane covers Inkling-2 GGUF models only, not {arch}: "
+                    "continuing on the normal path", file=sys.stderr)
+    if getattr(a, "npu_stats", False) and arch == "inkling": env["COLI_NPU_STATS"] = "1"
     return env
 
 def dsv4_cuda_available(model=None):
@@ -1078,9 +1082,10 @@ def env_for(a):
     # Explicit request only. Absent flag => variable absent => engine default,
     # which is the current path. Never set from discovery or from a plan.
     if getattr(a, "xdna", False): e["COLI_XDNA"]="1"
-    # The same rule for the Intel NPU lane (docs/intel-npu.md): asked for, never inferred.
-    if getattr(a, "npu", False): e["COLI_NPU"]="1"
-    if getattr(a, "npu_stats", False): e["COLI_NPU_STATS"]="1"
+    # The Intel NPU lane (docs/intel-npu.md) covers Inkling-2 only: say so rather than ignore it.
+    if getattr(a, "npu", False):
+        print("[NPU] requested, but the lane covers Inkling-2 GGUF models only: "
+              "continuing on the normal path", file=sys.stderr)
     if getattr(a, "cluster_workers", None): e["CLUSTER_WORKERS"] = a.cluster_workers
     if getattr(a, "cluster_coordinator", None): e["CLUSTER_COORDINATOR"] = a.cluster_coordinator
     if a.ram:  e["RAM_GB"]=str(a.ram)

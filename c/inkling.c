@@ -3485,6 +3485,11 @@ static void ink_npu_moe(Model *m, int layer, const float *x, int S, float *out,
             Slot *sl = slot_find(m, layer, e);
             if (sl) m->hits += cnt[e];
             else { m->miss++; m->hits += cnt[e] - 1; sl = slot_acquire(m, layer, e); fill[nfill++] = sl; }
+            /* held until the group's jobs complete: slot_acquire evicts an expert the Vulkan tier
+             * holds before any LRU one (vkt_ram_first), so without this a later acquire of the
+             * same group could take a slot this group still needs. ng <= the round's room
+             * (cap - npin) leaves a victim for every acquire. 2 = this group's pin. */
+            if (!sl->pinned) sl->pinned = 2;
             use[j] = sl;
         }
         if (nfill) { const double tf = now_s(); ink_fill_slots(m, layer, NULL, fill, nfill); m->t_fill += now_s() - tf; }
@@ -3540,10 +3545,18 @@ static void ink_npu_moe(Model *m, int layer, const float *x, int S, float *out,
         }
         /* the group's jobs complete while its slots are still held (the next group may evict them) */
         while (jn > 0) { ink_npu_finish(m, layer, x, &jobs[jh], rs, rw, out, st); jh = (jh + 1) % 64; jn--; }
+        for (int j = 0; j < ng; j++) if (use[j]->pinned == 2) use[j]->pinned = 0;
     }
     st->t_total += now_s() - t0;
     m->t_expert += now_s() - t0 - (m->t_fill - f0);
     free(cnt); free(off); free(rs); free(ex); free(rw); free(fill); free(use);
+}
+#else
+/* A build without the lane still answers an explicit request rather than ignoring it. */
+static void ink_npu_absent(void) {
+    const char *r = getenv("COLI_NPU");
+    if (r && *r && strcmp(r, "0"))
+        fprintf(stderr, "[NPU] requested, but this build has no NPU support (make NPU=1): continuing on the normal path\n");
 }
 #endif
 
@@ -5613,6 +5626,8 @@ int main(int argc, char **argv) {
         pins_load(&m, snap);
 #ifdef COLI_NPU
         ink_npu_start(&m);       /* compile (or load from the cache) before the first request */
+#else
+        ink_npu_absent();
 #endif
 #ifdef COLI_VULKAN
         ink_vk_tier_start(&m);   /* after the history: the warm start reads it */
@@ -5645,6 +5660,8 @@ int main(int argc, char **argv) {
         pins_load(&m, snap);
 #ifdef COLI_NPU
         ink_npu_start(&m);
+#else
+        ink_npu_absent();
 #endif
 #ifdef COLI_VULKAN
         ink_vk_tier_start(&m);
