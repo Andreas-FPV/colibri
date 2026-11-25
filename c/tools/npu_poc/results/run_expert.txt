@@ -1,0 +1,81 @@
+OpenVINO 2026.3.1-22476-759c5a6ab8c-releases/2026/3
+device CPU  Intel(R) Core(TM) Ultra 5 325
+device GPU  Intel(R) Graphics (iGPU)
+device NPU  Intel(R) AI Boost
+  NPU DEVICE_ARCHITECTURE            = 5010
+  NPU NPU_DRIVER_VERSION             = 1005540
+  NPU NPU_COMPILER_VERSION           = 524290
+  NPU NPU_DEVICE_TOTAL_MEM_SIZE      = 8589934592
+  NPU NPU_DEVICE_ALLOC_MEM_SIZE      = 0
+  NPU OPTIMIZATION_CAPABILITIES      = FP16 INT8 EXPORT_IMPORT
+  NPU NPU_MAX_TILES                  = 3
+  NPU DEVICE_GOPS                    = {bf16:0,f16:23961.6,f32:0,i8:47923.2,u8:47923.2}
+  NPU NPU_COMPILER_TYPE              = PREFER_PLUGIN
+  NPU RANGE_FOR_ASYNC_INFER_REQUESTS = 1 8 1
+
+== Inkling-2-Mini routed expert (2304 -> 2x1152 -> 2304, softcapped SwiGLU) ==
+expert M=1 f16 W-const                 CPU  compile    272.7 ms  first    2.51 ms  bind   0.000 ms  infer   1.336 ms  max|err| 5.09e-06  relL2 1.11e-06
+expert M=1 f16 W-const                 GPU  compile   2362.8 ms  first   20.05 ms  bind   0.000 ms  infer   3.501 ms  max|err| 2.58e-03  relL2 7.76e-04
+expert M=1 f16 W-const                 NPU  compile   3304.2 ms  first    8.80 ms  bind   0.000 ms  infer   1.232 ms  max|err| 3.50e-03  relL2 1.07e-03
+expert M=1 f16 W-in                    CPU  compile    114.1 ms  first   34.07 ms  bind   2.761 ms  infer   2.524 ms  max|err| 2.77e-06  relL2 7.59e-07
+expert M=1 f16 W-in                    GPU  compile    864.8 ms  first    1.38 ms  bind   1.945 ms  infer   0.963 ms  max|err| 2.58e-03  relL2 7.76e-04
+expert M=1 f16 W-in                    NPU  compile    473.0 ms  first    5.57 ms  bind   2.162 ms  infer   0.908 ms  max|err| 3.50e-03  relL2 1.07e-03
+expert M=1 i8/ch W-const               CPU  compile    129.2 ms  first    3.88 ms  bind   0.000 ms  infer   0.579 ms  max|err| 5.08e-02  relL2 1.05e-02
+expert M=1 i8/ch W-const               GPU  compile   1937.8 ms  first    4.39 ms  bind   0.000 ms  infer   0.324 ms  max|err| 6.98e-02  relL2 1.38e-02
+expert M=1 i8/ch W-const               NPU  compile    764.9 ms  first    5.48 ms  bind   0.000 ms  infer   0.469 ms  max|err| 4.86e-03  relL2 1.07e-03
+expert M=1 i8/ch W-in                  CPU  compile     67.1 ms  first    9.51 ms  bind   1.409 ms  infer   2.401 ms  max|err| 2.85e-06  relL2 6.75e-07
+expert M=1 i8/ch W-in                  GPU  compile    884.0 ms  first    3.38 ms  bind   1.296 ms  infer   2.214 ms  max|err| 3.40e-03  relL2 8.40e-04
+expert M=1 i8/ch W-in                  NPU  compile   2366.6 ms  first    9.30 ms  bind   1.605 ms  infer   4.493 ms  max|err| 4.58e-03  relL2 1.06e-03
+expert M=1 i4/g128 W-const             CPU  compile    121.1 ms  first    1.09 ms  bind   0.000 ms  infer   0.586 ms  max|err| 4.96e-02  relL2 1.07e-02
+expert M=1 i4/g128 W-const             GPU  compile   2223.0 ms  first    0.70 ms  bind   0.000 ms  infer   0.555 ms  max|err| 7.09e-02  relL2 1.78e-02
+expert M=1 i4/g128 W-const             NPU  compile   3238.0 ms  first    1.96 ms  bind   0.000 ms  infer   0.389 ms  max|err| 5.76e-03  relL2 1.17e-03
+expert M=1 i4/g128 W-in                CPU  compile     48.8 ms  first   24.26 ms  bind   0.438 ms  infer  26.033 ms  max|err| 3.14e-06  relL2 6.22e-07
+expert M=1 i4/g128 W-in                GPU  compile    560.7 ms  first    3.13 ms  bind   0.378 ms  infer   2.058 ms  max|err| 3.19e-03  relL2 7.81e-04
+expert M=1 i4/g128 W-in                NPU  compile    444.2 ms  first    2.26 ms  bind   0.184 ms  infer   0.856 ms  max|err| 5.76e-03  relL2 1.22e-03
+expert M=16 f16 W-const                CPU  compile     68.0 ms  first    2.41 ms  bind   0.000 ms  infer   3.739 ms  max|err| 6.04e-06  relL2 1.05e-06
+expert M=16 f16 W-const                GPU  compile    698.0 ms  first    0.72 ms  bind   0.000 ms  infer   0.409 ms  max|err| 4.33e-03  relL2 7.46e-04
+expert M=16 f16 W-const                NPU  compile    330.7 ms  first    2.36 ms  bind   0.000 ms  infer   0.521 ms  max|err| 5.78e-03  relL2 1.07e-03
+expert M=16 f16 W-in                   CPU  compile     54.4 ms  first   11.83 ms  bind   0.897 ms  infer   3.546 ms  max|err| 7.80e-06  relL2 9.67e-07
+expert M=16 f16 W-in                   GPU  compile    464.0 ms  first    0.96 ms  bind   0.814 ms  infer   0.731 ms  max|err| 4.33e-03  relL2 7.46e-04
+expert M=16 f16 W-in                   NPU  compile    324.2 ms  first    2.45 ms  bind   0.994 ms  infer   0.870 ms  max|err| 5.78e-03  relL2 1.07e-03
+expert M=16 i8/ch W-const              CPU  compile     35.1 ms  first    1.91 ms  bind   0.000 ms  infer   3.094 ms  max|err| 5.81e-02  relL2 1.02e-02
+expert M=16 i8/ch W-const              GPU  compile    845.5 ms  first    0.54 ms  bind   0.000 ms  infer   0.280 ms  max|err| 8.32e-02  relL2 1.43e-02
+expert M=16 i8/ch W-const              NPU  compile    262.8 ms  first    2.23 ms  bind   0.000 ms  infer   1.301 ms  max|err| 5.93e-03  relL2 1.06e-03
+expert M=16 i8/ch W-in                 CPU  compile     59.3 ms  first    6.91 ms  bind   0.569 ms  infer  13.060 ms  max|err| 6.13e-06  relL2 9.39e-07
+expert M=16 i8/ch W-in                 GPU  compile    540.5 ms  first    3.04 ms  bind   0.373 ms  infer   1.954 ms  max|err| 4.24e-03  relL2 8.59e-04
+expert M=16 i8/ch W-in                 NPU  compile    884.4 ms  first    5.85 ms  bind   0.429 ms  infer   3.402 ms  max|err| 5.85e-03  relL2 1.12e-03
+expert M=16 i4/g128 W-const            CPU  compile     50.0 ms  first    2.20 ms  bind   0.000 ms  infer   1.802 ms  max|err| 5.30e-02  relL2 1.04e-02
+expert M=16 i4/g128 W-const            GPU  compile    618.4 ms  first    1.25 ms  bind   0.000 ms  infer   0.289 ms  max|err| 1.36e-01  relL2 2.04e-02
+expert M=16 i4/g128 W-const            NPU  compile    928.1 ms  first    2.78 ms  bind   0.000 ms  infer   1.273 ms  max|err| 7.01e-03  relL2 1.35e-03
+expert M=16 i4/g128 W-in               CPU  compile     49.1 ms  first   27.61 ms  bind   0.365 ms  infer  18.651 ms  max|err| 6.81e-06  relL2 8.74e-07
+expert M=16 i4/g128 W-in               GPU  compile    480.1 ms  first    3.12 ms  bind   0.332 ms  infer   1.947 ms  max|err| 4.62e-03  relL2 8.27e-04
+expert M=16 i4/g128 W-in               NPU  compile    312.7 ms  first    1.95 ms  bind   0.185 ms  infer   0.785 ms  max|err| 6.20e-03  relL2 1.09e-03
+expert M=128 f16 W-const               CPU  compile     63.3 ms  first   12.42 ms  bind   0.000 ms  infer   8.106 ms  max|err| 5.68e-06  relL2 6.67e-07
+expert M=128 f16 W-const               GPU  compile    617.7 ms  first    1.05 ms  bind   0.000 ms  infer   0.510 ms  max|err| 4.52e-03  relL2 7.59e-04
+expert M=128 f16 W-const               NPU  compile    484.9 ms  first    2.69 ms  bind   0.000 ms  infer   0.773 ms  max|err| 6.26e-03  relL2 1.08e-03
+expert M=128 f16 W-in                  CPU  compile     48.8 ms  first   28.28 ms  bind   0.881 ms  infer  13.628 ms  max|err| 8.70e-06  relL2 9.61e-07
+expert M=128 f16 W-in                  GPU  compile    494.6 ms  first    2.74 ms  bind   0.877 ms  infer   1.115 ms  max|err| 4.52e-03  relL2 7.59e-04
+expert M=128 f16 W-in                  NPU  compile    385.9 ms  first    2.59 ms  bind   0.786 ms  infer   0.935 ms  max|err| 6.26e-03  relL2 1.08e-03
+expert M=128 i8/ch W-const             CPU  compile     37.0 ms  first    9.51 ms  bind   0.000 ms  infer   5.041 ms  max|err| 5.59e-02  relL2 1.03e-02
+expert M=128 i8/ch W-const             GPU  compile    683.8 ms  first    0.80 ms  bind   0.000 ms  infer   3.333 ms  max|err| 8.30e-02  relL2 1.40e-02
+expert M=128 i8/ch W-const             NPU  compile    844.8 ms  first    4.68 ms  bind   0.000 ms  infer   0.734 ms  max|err| 6.65e-03  relL2 1.08e-03
+expert M=128 i8/ch W-in                CPU  compile     72.7 ms  first   59.02 ms  bind   0.873 ms  infer  19.440 ms  max|err| 8.06e-06  relL2 9.55e-07
+expert M=128 i8/ch W-in                GPU  compile   1028.1 ms  first    3.74 ms  bind   1.018 ms  infer   2.261 ms  max|err| 5.32e-03  relL2 8.41e-04
+expert M=128 i8/ch W-in                NPU  compile   2022.5 ms  first   10.26 ms  bind   1.254 ms  infer   4.763 ms  max|err| 7.14e-03  relL2 1.14e-03
+expert M=128 i4/g128 W-const           CPU  compile    122.5 ms  first   17.44 ms  bind   0.000 ms  infer  12.297 ms  max|err| 5.99e-02  relL2 1.02e-02
+expert M=128 i4/g128 W-const           GPU  compile   1063.1 ms  first    1.12 ms  bind   0.000 ms  infer   0.555 ms  max|err| 1.41e-01  relL2 1.98e-02
+expert M=128 i4/g128 W-const           NPU  compile   2535.4 ms  first    3.42 ms  bind   0.000 ms  infer   0.898 ms  max|err| 7.03e-03  relL2 1.12e-03
+expert M=128 i4/g128 W-in              CPU  compile    160.0 ms  first   80.35 ms  bind   0.673 ms  infer  46.497 ms  max|err| 6.36e-06  relL2 8.76e-07
+expert M=128 i4/g128 W-in              GPU  compile    938.8 ms  first    3.97 ms  bind   0.858 ms  infer   2.760 ms  max|err| 6.10e-03  relL2 8.13e-04
+expert M=128 i4/g128 W-in              NPU  compile   1507.6 ms  first    3.83 ms  bind   0.626 ms  infer   1.081 ms  max|err| 6.89e-03  relL2 1.12e-03
+
+== 8 experts in one graph (decode: one row each), weights as inputs ==
+8 experts M=1 f16 W-in                 CPU  compile    192.6 ms  first   57.20 ms  bind  14.265 ms  infer  37.700 ms  max|err| 3.60e-06  relL2 7.45e-07
+8 experts M=1 f16 W-in                 GPU  compile    603.4 ms  first   13.81 ms  bind   7.726 ms  infer  12.775 ms  max|err| 4.06e-03  relL2 9.25e-04
+8 experts M=1 f16 W-in                 NPU  compile    856.0 ms  first    4.87 ms  bind   8.473 ms  infer   3.012 ms  max|err| 5.40e-03  relL2 1.19e-03
+8 experts M=1 i8/ch W-in               CPU  compile     61.6 ms  first   70.02 ms  bind   4.249 ms  infer  30.769 ms  max|err| 3.26e-06  relL2 7.51e-07
+8 experts M=1 i8/ch W-in               GPU  compile    667.8 ms  first   30.79 ms  bind   4.154 ms  infer  28.979 ms  max|err| 5.06e-03  relL2 9.52e-04
+8 experts M=1 i8/ch W-in               NPU  compile   1832.3 ms  first   90.68 ms  bind   3.719 ms  infer   7.018 ms  max|err| 6.25e-03  relL2 1.29e-03
+8 experts M=1 i4/g128 W-in             CPU  compile     84.6 ms  first  216.81 ms  bind   3.779 ms  infer 190.682 ms  max|err| 3.56e-06  relL2 6.97e-07
+8 experts M=1 i4/g128 W-in             GPU  compile    736.6 ms  first   30.12 ms  bind   3.531 ms  infer  28.408 ms  max|err| 4.13e-03  relL2 9.09e-04
+8 experts M=1 i4/g128 W-in             NPU  compile   2194.4 ms  first   17.87 ms  bind   2.748 ms  infer  11.425 ms  max|err| 7.73e-03  relL2 1.25e-03
