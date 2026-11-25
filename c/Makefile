@@ -575,7 +575,7 @@ TEST_RULES  := $(patsubst tests/%,%,$(filter tests/test_%,$(RULE_NAMES)))
 TEST_EXCLUDE = test_uring test_deepseek_v4 test_v4_ownership test_v4_serve_framing \
 	test_segment_adapters_registration test_segment_adapters_real test_olmoe_segment_real \
 	test_edge_adapters_registration test_edge_adapters_real \
-	test_xdna_execution test_xdna_failure \
+	test_xdna_execution test_xdna_failure test_npu_lane \
 	test_gsgemv_sse41 test_qgemv_sse41 test_olmoe_dot_i8_16_sse41 test_st_f16_bf16_simd_sse41 test_qwen38_tier_engine test_qwen38_dn_gpu test_qwen38_cuda_chain \
 	test_e8x4g64_loader test_qwenimage_vae test_vk_tier \
 	test_i4_grouped_sse41 test_i4_grouped_sse41_o1 test_i4_grouped_sse41_no_contract test_idot_ssse3 test_int_kernel_exact_ssse3 \
@@ -591,6 +591,8 @@ TEST_BINS += tests/test_uring$(EXE)
 endif
 ifneq (,$(IS_WIN)$(LINUX))
 TEST_BINS += tests/test_xdna_execution$(EXE) tests/test_xdna_failure$(EXE)
+# the Intel NPU lane's host side, on its synthetic helpers (the same loader shape)
+TEST_BINS += tests/test_npu_lane$(EXE)
 endif
 ifneq (,$(X86_64))
 TEST_BINS += tests/test_gsgemv_sse41$(EXE) tests/test_qgemv_sse41$(EXE) \
@@ -2337,6 +2339,21 @@ tests/test_xdna_execution$(EXE): tests/test_xdna_execution.c backend_xdna.c $(XD
 # is a separate owner from test_xdna_execution.
 tests/test_xdna_failure$(EXE): tests/test_xdna_failure.c colibri.c tests/backend_xdna_lane.o $(XDNA_FAKE_HELPERS) $(VK_OBJ)
 	$(CC) $(CFLAGS) -DCOLI_XDNA $< tests/backend_xdna_lane.o $(VK_OBJ) -o $@ $(LDFLAGS)
+
+# Intel NPU lane (backend_npu.c), host side only: binding refusals, memory cap, request life
+# cycle and failure path against synthetic helpers that contain no OpenVINO and touch no
+# device. The real helper's numerics are measured on hardware (COLI_NPU_CHECK, docs/intel-npu.md).
+NPU_FAKE_HELPERS = tests/npu_fake_helper$(XDNA_DLEXT) \
+                   tests/npu_fake_helper_abi_old$(XDNA_DLEXT) \
+                   tests/npu_fake_helper_partial$(XDNA_DLEXT)
+tests/npu_fake_helper$(XDNA_DLEXT): tests/npu_fake_helper.c backend_npu.h
+	$(CC) $(CFLAGS) $(XDNA_SHARED) $< -o $@ $(LDFLAGS)
+tests/npu_fake_helper_abi_old$(XDNA_DLEXT): tests/npu_fake_helper.c backend_npu.h
+	$(CC) $(CFLAGS) -DFAKE_ABI_OLD $(XDNA_SHARED) $< -o $@ $(LDFLAGS)
+tests/npu_fake_helper_partial$(XDNA_DLEXT): tests/npu_fake_helper.c backend_npu.h
+	$(CC) $(CFLAGS) -DFAKE_PARTIAL $(XDNA_SHARED) $< -o $@ $(LDFLAGS)
+tests/test_npu_lane$(EXE): tests/test_npu_lane.c backend_npu.c backend_npu.h $(NPU_FAKE_HELPERS)
+	$(CC) $(CFLAGS) $< backend_npu.c -o $@ $(LDFLAGS)
 
 # NOT a test gate -- intentionally absent from TEST_BINS (its name does not match
 # the tests/test_*$(EXE) pattern the gate list is derived from). It needs a real

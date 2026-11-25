@@ -40,6 +40,7 @@ FILES = [
     "coli_hip.dll", "coli_hip.lib", "coli_hip.exp", "coli_hip.pdb",
     "tests/compat_prefetch_module.dll",
     "libcoli_xdna.so",                      # `make xdna-helper` (Linux)
+    "backend_npu.o", "coli_npu.dll",        # NPU=1 and tools/build_npu_helper.cmd
     "deepseek_v4", "deepseek_v4.exe", "deepseek_v4.cflags", "deepseek_v4.cudaflags",
     "deepseek_v4.ldflags",
     "deepseek_v41", "deepseek_v41.exe",
@@ -80,7 +81,7 @@ FILES = [
 # tools/ for the ctypes library; build/segment/ and build/ownership/ go as
 # whole directories below.
 ARTIFACT_GLOBS = ["tests/test_*", "tests/bench_*", "tests/fuzz_*",
-                  "tests/*_probe*", "tests/xdna_fake_helper*", "COLI_V4_UNIT_*.o",
+                  "tests/*_probe*", "tests/xdna_fake_helper*", "tests/npu_fake_helper*", "COLI_V4_UNIT_*.o",
                   "*.d", "tests/*.d", "tools/*.d",
                   # helper objects the tests link (#1741), one unit per command
                   "tests/*.o"]
