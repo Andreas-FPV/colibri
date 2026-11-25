@@ -1124,6 +1124,23 @@ static float *load_t(Model *m, const char *name) {
     int64_t n = st_numel(&m->S, name);
     if (n < 0) { fprintf(stderr, "missing %s\n", name); exit(1); }
     float *p = falloc(n);
+    /* A mixed-precision GGUF (e.g. an imatrix "Mix" quant) can hold the small attention
+     * projections (attn_sink_proj, the convolutions' projections) as ggml blocks too:
+     * decode them to f32 here, exactly as the block kernels would read them. */
+    const st_tensor *t = st_find(&m->S, name);
+    if (t && st_is_ggml(t->dtype)) {
+        const int gt = st_ggml_type(t->dtype);
+        uint8_t *raw = malloc((size_t)t->nbytes);
+        if (!raw) { fprintf(stderr, "OOM reading %s\n", name); exit(1); }
+        st_read_raw(&m->S, name, raw, 0);
+        if (gq_row_bytes(gt, n) != t->nbytes || gq_dequant_row(gt, raw, p, n)) {
+            fprintf(stderr, "%s: ggml type %d cannot be decoded to f32 (%lld elements, %lld bytes)\n",
+                    name, gt, (long long)n, (long long)t->nbytes);
+            exit(1);
+        }
+        free(raw);
+        return p;
+    }
     st_read_f32(&m->S, name, p, 0);
     return p;
 }
