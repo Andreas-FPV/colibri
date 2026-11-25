@@ -3283,6 +3283,270 @@ static void ink_vk_moe(Model *m, Layer *l, int layer, const float *x, int S, flo
 }
 #endif
 
+#ifdef COLI_NPU
+/* ---------- optional Intel NPU lane (backend_npu.h, docs/intel-npu.md) ----------
+ * A prompt chunk's routed experts, expert by expert. moe()'s CPU path walks the chunk's
+ * (token, expert) pairs in token order, in rounds of at most the cache's room, so in a
+ * prompt each expert sees about one row per round and every product is a matrix-vector
+ * one. Here the chunk's pairs are grouped by expert first: each expert is read once per
+ * chunk and all its rows go through it together. An expert with at least
+ * COLI_NPU_MIN_ROWS rows is decoded from its GGUF blocks to f16 straight into a free NPU
+ * request (its global scales folded into the rows) and submitted; the NPU computes it while
+ * the CPU decodes the next. An expert with fewer rows is computed on the CPU, all its rows
+ * at once, with the block kernels. Decode (a chunk below the lane's threshold) never comes
+ * here. The NPU computes in fp16: output may differ from the CPU path, which is why the lane
+ * runs only on request. */
+#include "backend_npu.h"
+static ColiNpuLane *g_npu;
+static int g_npu_tried, g_npu_min_s = 16;
+
+static void ink_npu_start(Model *m) {
+    if (g_npu_tried) return;
+    g_npu_tried = 1;
+    const char *r = getenv("COLI_NPU");
+    if (!r || !*r || !strcmp(r, "0")) return;
+    if (!m->gx || !m->c.v2 || m->c.n_shared) {
+        fprintf(stderr, "[NPU] requested, but the lane covers Inkling-2's routed experts from a GGUF only: "
+                        "continuing on the normal path\n");
+        return;
+    }
+    const char *ms = getenv("COLI_NPU_MIN_S");
+    if (ms && atoi(ms) > 0) g_npu_min_s = atoi(ms);
+    g_npu = coli_npu_lane_open("Inkling-2", m->c.hidden, m->c.moe_inter, 1, m->c.gate_cap, m->c.up_cap);
+}
+
+static void ink_npu_report(const char *scope) { coli_npu_lane_report(g_npu, scope); }
+
+/* An expert's three matrices (ggml types t3, as the slot holds them) -> f16 in an NPU
+ * request: gate rows times gs, then up rows times us, into w13 [2I, D]; down rows times ds
+ * into w2 [D, I]. One parallel region over the 2I + D rows. */
+static void ink_npu_expert_f16(const int *t3, const Slot *sl, int I, int D, float gs, float us, float ds,
+                               uint16_t *w13, uint16_t *w2) {
+    const int64_t rbg = gq_row_bytes(t3[0], D), rbu = gq_row_bytes(t3[1], D), rbd = gq_row_bytes(t3[2], I);
+    const uint8_t *pg = sl->p13, *pu = sl->p13 + (int64_t)I * rbg, *pd = sl->p2;
+    const int r16g = gq_r16_base(t3[0]) >= 0, r16u = gq_r16_base(t3[1]) >= 0, r16d = gq_r16_base(t3[2]) >= 0;
+    int bad = 0;
+    #pragma omp parallel
+    {
+        float *row = (float *)malloc((size_t)(D > I ? D : I) * sizeof(float));
+        #pragma omp for schedule(static)
+        for (int o = 0; o < 2 * I + D; o++) {
+            if (!row) { bad = 1; continue; }
+            int t, rc, cols, r16; const uint8_t *src; int64_t rb; float mul; uint16_t *dst; int lo;
+            if (o < I)          { t = t3[0]; src = pg; rb = rbg; r16 = r16g; lo = o;         cols = D; mul = gs; dst = w13 + (int64_t)o * D; }
+            else if (o < 2 * I) { t = t3[1]; src = pu; rb = rbu; r16 = r16u; lo = o - I;     cols = D; mul = us; dst = w13 + (int64_t)o * D; }
+            else                { t = t3[2]; src = pd; rb = rbd; r16 = r16d; lo = o - 2 * I; cols = I; mul = ds; dst = w2 + (int64_t)lo * I; }
+            rc = r16 ? gq_r16_dequant_row(t, src, lo, row, cols) : gq_dequant_row(t, src + (int64_t)lo * rb, row, cols);
+            if (rc) { bad = 1; continue; }
+            if (mul != 1.f) for (int i = 0; i < cols; i++) row[i] *= mul;
+            coli_npu_f32_to_f16(row, dst, cols);
+        }
+        free(row);
+    }
+    if (bad) { fprintf(stderr, "[NPU] ggml types %d/%d/%d: rows could not be decoded\n", t3[0], t3[1], t3[2]); exit(1); }
+}
+
+typedef struct { int id, r0, n; const Slot *sl; } InkNpuJob;
+
+static void ink_npu_cpu_expert(Model *m, int layer, const Slot *e, const float *x, const int *rs, const float *rw,
+                               int n, float *out);
+static void ink_npu_check(Model *m, int layer, const InkNpuJob *j, const float *x, const int *rs, const float *y);
+
+/* the job's output rows times their combine weights into out, then the request is free.
+ * Its slot is still held (jobs complete before the next group acquires): a failed wait
+ * recomputes the rows on the CPU, so no row is ever lost. */
+static void ink_npu_finish(Model *m, int layer, const float *x, const InkNpuJob *j, const int *rs, const float *rw,
+                           float *out, ColiNpuStats *st) {
+    const int D = m->c.hidden;
+    const float *y = NULL;
+    double tw = now_s();
+    const int ok = coli_npu_lane_wait(g_npu, j->id, &y) == 0;
+    st->t_wait += now_s() - tw;
+    if (ok) {
+        ink_npu_check(m, layer, j, x, rs, y);
+        for (int r = 0; r < j->n; r++) {
+            float *os = out + (int64_t)rs[j->r0 + r] * D;
+            const float w = rw[j->r0 + r], *yr = y + (int64_t)r * D;
+            for (int d = 0; d < D; d++) os[d] += w * yr[d];
+        }
+    }
+    coli_npu_lane_release(g_npu, j->id);
+    if (!ok) {
+        const double tc = now_s();
+        ink_npu_cpu_expert(m, layer, j->sl, x, rs + j->r0, rw + j->r0, j->n, out);
+        st->t_cpu += now_s() - tc; st->cpu_rows += j->n;
+    }
+}
+
+/* One expert's rows on the CPU, all at once: gate/up, the softcapped SwiGLU, down, its down
+ * scale included: hb [n, D] (the caller's buffer). */
+static void ink_npu_cpu_rows(Model *m, int layer, const Slot *e, const float *x, const int *rs, int n, float *hb) {
+    const int64_t D = m->c.hidden, I = m->c.moe_inter;
+    const int *t3 = m->gx_h + 3 * layer;
+    float *xb = falloc(n * D), *gb = falloc(n * I), *ub = falloc(n * I);
+    for (int r = 0; r < n; r++) memcpy(xb + r * D, x + (int64_t)rs[r] * D, (size_t)D * sizeof(float));
+    ColiTensorView vg = { COLI_TENSOR_GGML, COLI_SCALE_NONE, e->p13, NULL, 0, 0, I, D, 1, (uint32_t)t3[0], NULL };
+    ColiTensorView vu = vg;
+    vu.data = e->p13 + I * gq_row_bytes(t3[0], D); vu.block_columns = (uint32_t)t3[1];
+    ColiTensorView vd = { COLI_TENSOR_GGML, COLI_SCALE_NONE, e->p2, NULL, 0, 0, D, I, 1, (uint32_t)t3[2], NULL };
+    if (coli_ggml_matmul2(gb, &vg, ub, &vu, xb, n)) { fprintf(stderr, "layer %d: GGUF expert gate/up failed\n", layer); exit(1); }
+    const Layer *ly = &m->L[layer];
+    if (ly->xgsc) {
+        const float gs = ly->xgsc[e->eid], us = ly->xusc[e->eid];
+        for (int64_t k = 0; k < n * I; k++) { gb[k] *= gs; ub[k] *= us; }
+    }
+    ink_glu(&m->c, gb, ub, n * I);
+    if (coli_ggml_matmul(hb, &vd, gb, n)) { fprintf(stderr, "layer %d: GGUF expert down failed\n", layer); exit(1); }
+    if (ly->xdsc) { const float ds = ly->xdsc[e->eid]; for (int64_t k = 0; k < n * D; k++) hb[k] *= ds; }
+    free(xb); free(gb); free(ub);
+}
+
+static void ink_npu_cpu_expert(Model *m, int layer, const Slot *e, const float *x, const int *rs, const float *rw,
+                               int n, float *out) {
+    const int64_t D = m->c.hidden;
+    float *hb = falloc(n * D);
+    ink_npu_cpu_rows(m, layer, e, x, rs, n, hb);
+    for (int r = 0; r < n; r++) {
+        float *os = out + (int64_t)rs[r] * D;
+        const float w = rw[r], *hr = hb + (int64_t)r * D;
+        for (int64_t d = 0; d < D; d++) os[d] += w * hr[d];
+    }
+    free(hb);
+}
+
+/* COLI_NPU_CHECK=N: the first N NPU jobs are also computed on the CPU (the engine's own block
+ * kernels, the same expert, the same rows) and the difference is printed. A measurement of
+ * the lane on the real weights, not a gate: the NPU's result is the one used. */
+static int g_npu_check = -1;
+static double g_npu_check_worst;
+static void ink_npu_check(Model *m, int layer, const InkNpuJob *j, const float *x, const int *rs, const float *y) {
+    if (g_npu_check < 0) { const char *v = getenv("COLI_NPU_CHECK"); g_npu_check = v ? atoi(v) : 0; }
+    if (g_npu_check <= 0) return;
+    g_npu_check--;
+    const int64_t D = m->c.hidden;
+    float *hb = falloc(j->n * D);
+    ink_npu_cpu_rows(m, layer, j->sl, x, rs + j->r0, j->n, hb);
+    double num = 0, den = 0, mx = 0;
+    for (int64_t k = 0; k < j->n * D; k++) {
+        const double d = (double)y[k] - hb[k];
+        num += d * d; den += (double)hb[k] * hb[k];
+        if (fabs(d) > mx) mx = fabs(d);
+    }
+    const double rel = sqrt(num / (den > 0 ? den : 1e-30));
+    if (rel > g_npu_check_worst) g_npu_check_worst = rel;
+    fprintf(stderr, "[NPU] check layer %d expert %d, %d rows: relative L2 %.3e, max |diff| %.3e (worst so far %.3e)\n",
+            layer, j->sl->eid, j->n, rel, mx, g_npu_check_worst);
+    free(hb);
+}
+
+static void ink_npu_moe(Model *m, int layer, const float *x, int S, float *out,
+                        const int *idx, const int *keff, const float *wgt) {
+    Cfg *c = &m->c;
+    const int D = c->hidden, K = c->topk, I = c->moe_inter, E = c->n_experts, ns = c->n_shared;
+    ColiNpuStats *st = coli_npu_lane_stats(g_npu);
+    const double t0 = now_s(), f0 = m->t_fill;
+    st->chunks++;
+    /* the chunk's pairs grouped by expert, each expert's rows in token order */
+    int *cnt = calloc((size_t)E, sizeof(int)), *off = malloc((size_t)(E + 1) * sizeof(int));
+    int *rs = malloc((size_t)S * K * sizeof(int)), *ex = malloc((size_t)E * sizeof(int));
+    float *rw = malloc((size_t)S * K * sizeof(float));
+    Slot **fill = malloc((size_t)E * sizeof(Slot *)), **use = malloc((size_t)E * sizeof(Slot *));
+    if (!cnt || !off || !rs || !ex || !rw || !fill || !use) { fprintf(stderr, "OOM ink_npu_moe\n"); exit(1); }
+    for (int s = 0; s < S; s++)
+        for (int kk = 0; kk < keff[s]; kk++) {
+            const int e = idx[(int64_t)s * K + kk];
+            cnt[e]++;
+            if (m->eusage && m->eusage[layer]) m->eusage[layer][e]++;
+        }
+    off[0] = 0;
+    int nex = 0;
+    for (int e = 0; e < E; e++) { off[e + 1] = off[e] + cnt[e]; if (cnt[e]) ex[nex++] = e; }
+    {
+        int *pos = malloc((size_t)E * sizeof(int));
+        memcpy(pos, off, (size_t)E * sizeof(int));
+        for (int s = 0; s < S; s++)
+            for (int kk = 0; kk < keff[s]; kk++) {
+                const int e = idx[(int64_t)s * K + kk], p = pos[e]++;
+                rs[p] = s; rw[p] = wgt[(int64_t)s * (K + ns) + kk];
+            }
+        free(pos);
+    }
+    const int minr = coli_npu_lane_min_rows(g_npu), maxr = coli_npu_lane_max_rows(g_npu);
+    InkNpuJob jobs[64]; int jh = 0, jn = 0;   /* in flight, oldest at jh */
+    const int rc = slot_round_cap(m, layer);
+    const int *t3 = m->gx_h + 3 * layer;
+    const Layer *ly = &m->L[layer];
+    for (int g0 = 0; g0 < nex; g0 += rc) {
+        const int ng = nex - g0 < rc ? nex - g0 : rc;
+        int nfill = 0;
+        for (int j = 0; j < ng; j++) {   /* acquire the group's experts; hits and misses as moe() counts them */
+            const int e = ex[g0 + j];
+            ehit_mark(m, layer, e);
+            Slot *sl = slot_find(m, layer, e);
+            if (sl) m->hits += cnt[e];
+            else { m->miss++; m->hits += cnt[e] - 1; sl = slot_acquire(m, layer, e); fill[nfill++] = sl; }
+            use[j] = sl;
+        }
+        if (nfill) { const double tf = now_s(); ink_fill_slots(m, layer, NULL, fill, nfill); m->t_fill += now_s() - tf; }
+        for (int j = 0; j < ng; j++) {
+            const int e = ex[g0 + j];
+            if (use[j]->eid != e) {
+                fprintf(stderr, "layer %d: cache served expert %d for requested expert %d\n", layer, use[j]->eid, e);
+                exit(1);
+            }
+        }
+        for (int j = 0; j < ng; j++) {
+            const int e = ex[g0 + j], n = cnt[e];
+            const Slot *sl = use[j];
+            if (!coli_npu_lane_ok(g_npu) || n < minr) {
+                const double tc = now_s();
+                ink_npu_cpu_expert(m, layer, sl, x, rs + off[e], rw + off[e], n, out);
+                st->t_cpu += now_s() - tc; st->cpu_experts++; st->cpu_rows += n;
+                continue;
+            }
+            for (int r0 = 0; r0 < n; ) {
+                const int nr = n - r0 < maxr ? n - r0 : maxr;
+                ColiNpuSlot q; int id;
+                while ((id = coli_npu_lane_acquire(g_npu, nr, &q)) == -2 && jn > 0) {
+                    ink_npu_finish(m, layer, x, &jobs[jh], rs, rw, out, st); jh = (jh + 1) % 64; jn--;
+                }
+                if (id < 0) {   /* the lane failed (it said so): these rows on the CPU */
+                    const double tc = now_s();
+                    ink_npu_cpu_expert(m, layer, sl, x, rs + off[e] + r0, rw + off[e] + r0, n - r0, out);
+                    st->t_cpu += now_s() - tc; st->cpu_experts++; st->cpu_rows += n - r0;
+                    break;
+                }
+                const double td = now_s();
+                for (int r = 0; r < nr; r++)
+                    memcpy(q.x + (int64_t)r * D, x + (int64_t)rs[off[e] + r0 + r] * D, (size_t)D * sizeof(float));
+                const float gs = ly->xgsc ? ly->xgsc[e] : 1.f, us = ly->xusc ? ly->xusc[e] : 1.f,
+                            ds = ly->xdsc ? ly->xdsc[e] : 1.f;
+                /* every request owns its weight buffers: the expert's rows decoded into this one */
+                ink_npu_expert_f16(t3, sl, I, D, gs, us, ds, q.w13, q.w2);
+                st->t_decode += now_s() - td;
+                if (coli_npu_lane_submit(g_npu, id)) {
+                    coli_npu_lane_release(g_npu, id);
+                    const double tc = now_s();
+                    ink_npu_cpu_expert(m, layer, sl, x, rs + off[e] + r0, rw + off[e] + r0, n - r0, out);
+                    st->t_cpu += now_s() - tc; st->cpu_experts++; st->cpu_rows += n - r0;
+                    break;
+                }
+                InkNpuJob *jb = &jobs[(jh + jn) % 64];
+                jb->id = id; jb->sl = sl; jb->r0 = off[e] + r0; jb->n = nr; jn++;
+                st->experts += (r0 == 0); st->rows += nr; st->pad_rows += q.rows - nr;
+                r0 += nr;
+                if (jn == 64) { ink_npu_finish(m, layer, x, &jobs[jh], rs, rw, out, st); jh = (jh + 1) % 64; jn--; }
+            }
+        }
+        /* the group's jobs complete while its slots are still held (the next group may evict them) */
+        while (jn > 0) { ink_npu_finish(m, layer, x, &jobs[jh], rs, rw, out, st); jh = (jh + 1) % 64; jn--; }
+    }
+    st->t_total += now_s() - t0;
+    m->t_expert += now_s() - t0 - (m->t_fill - f0);
+    free(cnt); free(off); free(rs); free(ex); free(rw); free(fill); free(use);
+}
+#endif
+
 /* moe() with two doors for the dense chain (inkling_chain.h): lg_in, the router's
  * logits [S][E+ns] the device computed (NULL: computed here); shw, when not NULL, asks
  * for the routed experts only, and receives the shared experts' combine weights,
@@ -3349,6 +3613,15 @@ static void moe_ex(Model *m, Layer *l, int layer, float *x, int S, float *out, c
         m->euse += keff[s];
     }
     if (shw) for (int s = 0; s < S; s++) for (int j = 0; j < ns; j++) shw[(int64_t)j*S + s] = wgt[(int64_t)s*(K+ns) + K + j];
+#ifdef COLI_NPU
+    if (!g_npu_tried) ink_npu_start(m);
+    if (g_npu && coli_npu_lane_ok(g_npu) && S >= g_npu_min_s && ns == 0) {   /* a prompt chunk: expert by expert */
+        ink_npu_moe(m, layer, x, S, out, idx, keff, wgt);
+        if (!lg_in) free(logits);
+        free(idx); free(keff); free(wgt); free(use); free(fill); free(fl); free(fresh);
+        return;
+    }
+#endif
 #if defined(COLI_VULKAN) || defined(COLI_CUDA)
     if (XT(ready)()) {   /* the expert tier (Vulkan's or CUDA's) takes the layer from here (ink_vk_moe) */
         ink_vk_moe(m, l, layer, x, S, out, idx, keff, wgt, shw != NULL);
@@ -4176,6 +4449,9 @@ static void generate_stream(Model *m, Tok *T, const char *prompt, int n_new,
     printf("[phases] fill %.1fs | expert-mm %.1fs | shared %.1fs | attn %.1fs | other %.1fs\n",
            m->t_fill, m->t_expert, m->t_shared, m->t_attn,
            wall - m->t_fill - m->t_expert - m->t_shared - m->t_attn);
+#ifdef COLI_NPU
+    fflush(stdout); ink_npu_report("run");
+#endif
 #ifdef COLI_VULKAN
     fflush(stdout); ink_vk_report(); ink_vk_tier_report(m, "run"); inkc_report(m);
 #elif defined(COLI_CUDA)
@@ -4901,6 +5177,9 @@ static int serve_one(Model *m, Tok *T, SReq *q) {
         const int least = mn && atoi(mn) > 0 ? atoi(mn) : 1024;
         if (m->kv_len >= least && m->kvp.len == m->kv_len) ink_ps_save(m, m->kvp.fed, m->kv_len);
     }
+#ifdef COLI_NPU
+    ink_npu_report("turn");
+#endif
 #ifdef COLI_VULKAN
     ink_vk_report(); ink_vk_tier_report(m, "turn"); inkc_report(m);
 #elif defined(COLI_CUDA)
@@ -5332,6 +5611,9 @@ int main(int argc, char **argv) {
         }
         Model m; model_init(&m, snap, cap, bits);
         pins_load(&m, snap);
+#ifdef COLI_NPU
+        ink_npu_start(&m);       /* compile (or load from the cache) before the first request */
+#endif
 #ifdef COLI_VULKAN
         ink_vk_tier_start(&m);   /* after the history: the warm start reads it */
         inkc_start(&m);          /* COLI_VK_CHAIN, after the tier */
@@ -5361,6 +5643,9 @@ int main(int argc, char **argv) {
                m.c.n_layers, m.gx ? "GGUF" : m.xg64 ? "container (int4 g64)" : m.xq ? "container" : bits ? "int" : "f32",
                m.cache[0].cap);
         pins_load(&m, snap);
+#ifdef COLI_NPU
+        ink_npu_start(&m);
+#endif
 #ifdef COLI_VULKAN
         ink_vk_tier_start(&m);
         inkc_start(&m);          /* COLI_VK_CHAIN, after the tier */

@@ -854,6 +854,18 @@ CFLAGS   += -DCOLI_XDNA
 XDNA_OBJ  = backend_xdna.o
 endif
 
+# Optional Intel NPU lane (OpenVINO), Inkling-2's routed experts in prompt chunks. Same
+# opt-in shape as XDNA=1: the host never links OpenVINO; backend_npu.c resolves the helper
+# (coli_npu.dll, built with MSVC by tools/build_npu_helper.cmd) beside the executable at
+# run time, so an NPU=1 build starts normally without NPU, OpenVINO or helper, and stays
+# off until `coli --npu` (COLI_NPU=1). See docs/intel-npu.md.
+NPU       ?= 0
+NPU_OBJ    =
+ifeq ($(NPU),1)
+CFLAGS   += -DCOLI_NPU
+NPU_OBJ   = backend_npu.o
+endif
+
 all: colibri$(EXE)
 
 # Tiny Kimi K3 fixture + vendor oracle (and K3.1's, the same weights plus the DSA
@@ -979,7 +991,7 @@ glm: colibri$(EXE)
 # rewrite it ONLY when they change (evaluated here at parse time, so the file's
 # timestamp moves exactly when the config moves). The binary and CUDA/loader objects depend
 # on it, so they relink on a config change and stay put otherwise. (#306)
-BUILD_CONFIG     := $(CC)|$(CFLAGS)|$(LDFLAGS)|CUDA=$(CUDA)|CUDA_DLL=$(CUDA_DLL)|ARCH=$(ARCH)|CUDA_ARCH=$(CUDA_ARCH)|CUDA_GLIBC_MATH_COMPAT=$(CUDA_GLIBC_MATH_COMPAT)|METAL=$(METAL)|HIP=$(HIP)|HIP_DLL=$(HIP_DLL)|HIP_ARCH=$(HIP_ARCH)|VK=$(VK)|XDNA=$(XDNA)
+BUILD_CONFIG     := $(CC)|$(CFLAGS)|$(LDFLAGS)|CUDA=$(CUDA)|CUDA_DLL=$(CUDA_DLL)|ARCH=$(ARCH)|CUDA_ARCH=$(CUDA_ARCH)|CUDA_GLIBC_MATH_COMPAT=$(CUDA_GLIBC_MATH_COMPAT)|METAL=$(METAL)|HIP=$(HIP)|HIP_DLL=$(HIP_DLL)|HIP_ARCH=$(HIP_ARCH)|VK=$(VK)|XDNA=$(XDNA)|NPU=$(NPU)
 BUILD_CONFIG_OLD := $(shell cat .build-config 2>/dev/null)
 ifneq "$(BUILD_CONFIG)" "$(BUILD_CONFIG_OLD)"
 # $(file ...) writes via make's own primitive (GNU Make >= 4.0, 2013), NOT by
@@ -2208,8 +2220,8 @@ ifneq ($(EXE),)
 .PHONY: inkling
 inkling: inkling$(EXE)
 endif
-inkling$(EXE): inkling.c $(INK_CUDA_OBJ) $(METAL_OBJ) $(VK_OBJ) $(VK_SPV) .build-config
-	$(CC) $(CFLAGS) inkling.c $(INK_CUDA_OBJ) $(METAL_OBJ) $(VK_OBJ) -o inkling$(EXE) $(LDFLAGS)
+inkling$(EXE): inkling.c $(INK_CUDA_OBJ) $(METAL_OBJ) $(VK_OBJ) $(VK_SPV) $(NPU_OBJ) .build-config
+	$(CC) $(CFLAGS) inkling.c $(INK_CUDA_OBJ) $(METAL_OBJ) $(VK_OBJ) $(NPU_OBJ) -o inkling$(EXE) $(LDFLAGS)
 
 # ENGINES WITHOUT A CUDA BACKEND (#783).
 # kimi_k3.c contains no COLI_CUDA code at all — its GPU path is Vulkan. But

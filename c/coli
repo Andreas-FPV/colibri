@@ -767,6 +767,9 @@ def env_for_engine(a, arch, plan=None):
             env["K3_CUDA"] = "0"
         elif env.get("COLI_CUDA") == "1" and "K3_CUDA" not in explicit_env:
             env["K3_CUDA"] = "1"
+    # Intel NPU lane (docs/intel-npu.md): explicit request only, as --xdna for glm in env_for.
+    if getattr(a, "npu", False): env["COLI_NPU"] = "1"
+    if getattr(a, "npu_stats", False): env["COLI_NPU_STATS"] = "1"
     return env
 
 def dsv4_cuda_available(model=None):
@@ -1075,6 +1078,9 @@ def env_for(a):
     # Explicit request only. Absent flag => variable absent => engine default,
     # which is the current path. Never set from discovery or from a plan.
     if getattr(a, "xdna", False): e["COLI_XDNA"]="1"
+    # The same rule for the Intel NPU lane (docs/intel-npu.md): asked for, never inferred.
+    if getattr(a, "npu", False): e["COLI_NPU"]="1"
+    if getattr(a, "npu_stats", False): e["COLI_NPU_STATS"]="1"
     if getattr(a, "cluster_workers", None): e["CLUSTER_WORKERS"] = a.cluster_workers
     if getattr(a, "cluster_coordinator", None): e["CLUSTER_COORDINATOR"] = a.cluster_coordinator
     if a.ram:  e["RAM_GB"]=str(a.ram)
@@ -4273,6 +4279,13 @@ def main():
                         help="experimental: run qualified GLM operations on the AMD XDNA2 NPU "
                              "(reduced-precision BF16 path; output may differ; unsupported "
                              "operations use the normal path)")
+    # Intel NPU (OpenVINO) lane: same reasoning as --xdna -- a compute device, explicit only.
+    common.add_argument("--npu", action="store_true",
+                        help="experimental: run Inkling-2's routed experts of prompt chunks on an "
+                             "Intel NPU through OpenVINO (reduced-precision fp16 path; output may "
+                             "differ; decode and everything else use the normal path)")
+    common.add_argument("--npu-stats", action="store_true",
+                        help="print the NPU lane's per-turn statistics (COLI_NPU_STATS=1)")
     # Absent (None) = not explicitly set: the glm engine gets the 0 sentinel and picks
     # (8 historically; 1 on Metal+darwin+fast SSD, #379 -- an honest F_NOCACHE probe
     # measures "fast", cached in <model>/.coli_ssd), while non-glm arches get the
