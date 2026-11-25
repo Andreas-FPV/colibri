@@ -2354,6 +2354,10 @@ tests/npu_fake_helper_partial$(XDNA_DLEXT): tests/npu_fake_helper.c backend_npu.
 	$(CC) $(CFLAGS) -DFAKE_PARTIAL $(XDNA_SHARED) $< -o $@ $(LDFLAGS)
 tests/test_npu_lane$(EXE): tests/test_npu_lane.c backend_npu.c backend_npu.h $(NPU_FAKE_HELPERS)
 	$(CC) $(CFLAGS) $< backend_npu.c -o $@ $(LDFLAGS)
+# The lane's GGUF row -> f16 decode (backend_npu_rows.h): the vector path bit for bit against
+# the scalar one, every type it accelerates. Portable: no loader, no helper.
+tests/test_npu_rows$(EXE): tests/test_npu_rows.c backend_npu_rows.h backend_npu.c backend_npu.h ggml_quants.h
+	$(CC) $(CFLAGS) $< backend_npu.c -o $@ $(LDFLAGS)
 
 # NOT a test gate -- intentionally absent from TEST_BINS (its name does not match
 # the tests/test_*$(EXE) pattern the gate list is derived from). It needs a real

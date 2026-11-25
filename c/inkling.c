@@ -3297,6 +3297,7 @@ static void ink_vk_moe(Model *m, Layer *l, int layer, const float *x, int S, flo
  * here. The NPU computes in fp16: output may differ from the CPU path, which is why the lane
  * runs only on request. */
 #include "backend_npu.h"
+#include "backend_npu_rows.h"
 static ColiNpuLane *g_npu;
 static int g_npu_tried, g_npu_min_s = 16;
 
@@ -3336,7 +3337,11 @@ static void ink_npu_expert_f16(const int *t3, const Slot *sl, int I, int D, floa
             if (o < I)          { t = t3[0]; src = pg; rb = rbg; r16 = r16g; lo = o;         cols = D; mul = gs; dst = w13 + (int64_t)o * D; }
             else if (o < 2 * I) { t = t3[1]; src = pu; rb = rbu; r16 = r16u; lo = o - I;     cols = D; mul = us; dst = w13 + (int64_t)o * D; }
             else                { t = t3[2]; src = pd; rb = rbd; r16 = r16d; lo = o - 2 * I; cols = I; mul = ds; dst = w2 + (int64_t)lo * I; }
-            rc = r16 ? gq_r16_dequant_row(t, src, lo, row, cols) : gq_dequant_row(t, src + (int64_t)lo * rb, row, cols);
+            if (!r16) {   /* backend_npu_rows.h: the vector unpack where it is exact, else the scalar path */
+                if (coli_npu_row_f16(t, src + (int64_t)lo * rb, cols, mul, dst, row)) bad = 1;
+                continue;
+            }
+            rc = gq_r16_dequant_row(t, src, lo, row, cols);
             if (rc) { bad = 1; continue; }
             if (mul != 1.f) for (int i = 0; i < cols; i++) row[i] *= mul;
             coli_npu_f32_to_f16(row, dst, cols);
