@@ -2106,6 +2106,9 @@ static void ink2_deinterleave(float *w, int64_t I, int64_t D) {
     free(t);
 }
 
+#ifdef COLI_NPU
+static int64_t g_ink_gx_read;   /* GGUF expert bytes read by slot_fill (from the SSD or the OS cache) */
+#endif
 static void slot_fill(Model *m, int layer, Slot *s) {
     Cfg *c = &m->c;
     int64_t D = c->hidden, I = c->moe_inter, n13 = 2*I*D, n2 = D*I;
@@ -2123,6 +2126,9 @@ static void slot_fill(Model *m, int layer, Slot *s) {
             snprintf(nm, sizeof(nm), "%s.%d.mlp.experts.%lld.%s", ink_lpfx(m), layer, (long long)eid, k3[k]);
             st_tensor *t = st_find(&m->S, nm);
             const int64_t n = rows[k] * rb[k];
+#ifdef COLI_NPU
+            __atomic_fetch_add(&g_ink_gx_read, n, __ATOMIC_RELAXED);   /* --npu-stats: bytes read */
+#endif
             if (h3[k] == t3[k]) { pread_all(t->fd, dst[k], n, t->off); continue; }
             if (raw_n < n) {
                 free(raw); raw = malloc((size_t)n); raw_n = raw ? n : 0;
@@ -3316,7 +3322,21 @@ static void ink_npu_start(Model *m) {
     g_npu = coli_npu_lane_open("Inkling-2", m->c.hidden, m->c.moe_inter, 1, m->c.gate_cap, m->c.up_cap);
 }
 
-static void ink_npu_report(const char *scope) { coli_npu_lane_report(g_npu, scope); }
+/* the lane's counts and times, then the expert cache over the same span: hits and misses as
+ * moe() counts them, and the GGUF expert bytes slot_fill read (a "turn" since the last
+ * report, a "run" in total) */
+static void ink_npu_report(const Model *m, const char *scope) {
+    static int64_t h0, m0, b0;
+    if (!g_npu || !coli_npu_lane_stats(g_npu) || !coli_npu_lane_stats(g_npu)->chunks) return;
+    coli_npu_lane_report(g_npu, scope);
+    const int turn = !strcmp(scope, "turn");
+    const int64_t h = (int64_t)m->hits - (turn ? h0 : 0), ms = (int64_t)m->miss - (turn ? m0 : 0),
+                  b = g_ink_gx_read - (turn ? b0 : 0);
+    if (getenv("COLI_NPU_STATS") && atoi(getenv("COLI_NPU_STATS")))
+        fprintf(stderr, "[NPU] %s: expert cache %lld hits, %lld misses (%.1f%% hits), %.2f GiB of GGUF experts read\n",
+                scope, (long long)h, (long long)ms, h + ms ? 100.0 * h / (double)(h + ms) : 0.0, b / 1073741824.0);
+    h0 = m->hits; m0 = m->miss; b0 = g_ink_gx_read;
+}
 
 /* An expert's three matrices (ggml types t3, as the slot holds them) -> f16 in an NPU
  * request: gate rows times gs, then up rows times us, into w13 [2I, D]; down rows times ds
@@ -4468,7 +4488,7 @@ static void generate_stream(Model *m, Tok *T, const char *prompt, int n_new,
            m->t_fill, m->t_expert, m->t_shared, m->t_attn,
            wall - m->t_fill - m->t_expert - m->t_shared - m->t_attn);
 #ifdef COLI_NPU
-    fflush(stdout); ink_npu_report("run");
+    fflush(stdout); ink_npu_report(m, "run");
 #endif
 #ifdef COLI_VULKAN
     fflush(stdout); ink_vk_report(); ink_vk_tier_report(m, "run"); inkc_report(m);
@@ -5196,7 +5216,7 @@ static int serve_one(Model *m, Tok *T, SReq *q) {
         if (m->kv_len >= least && m->kvp.len == m->kv_len) ink_ps_save(m, m->kvp.fed, m->kv_len);
     }
 #ifdef COLI_NPU
-    ink_npu_report("turn");
+    ink_npu_report(m, "turn");
 #endif
 #ifdef COLI_VULKAN
     ink_vk_report(); ink_vk_tier_report(m, "turn"); inkc_report(m);

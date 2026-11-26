@@ -274,6 +274,9 @@ ColiNpuLane *coli_npu_lane_open(const char *engine, int D, int I, int act, float
     for (int i = 0; i < cfg.nbuckets; i++) fprintf(stderr, " %d", cfg.buckets[i]);
     fprintf(stderr, " rows x %d requests, %.0f MiB host buffers, compiled in %.0f ms; min %d rows/expert\n",
             cfg.nreq, L->info.host_bytes / 1048576.0, L->info.compile_ms, L->min_rows);
+    if (L->info.device_mem_alloc >= 0 || L->info.device_mem_total >= 0)   /* what OpenVINO reports, -1 = not reported */
+        fprintf(stderr, "[NPU] device memory: %.0f MiB allocated of %.0f MiB\n",
+                L->info.device_mem_alloc / 1048576.0, L->info.device_mem_total / 1048576.0);
     return L;
 }
 
