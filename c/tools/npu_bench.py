@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Reproducible end-to-end benchmark for one colibri configuration (standard library only).
 
-Starts `coli serve` with the given environment, sends the same fixed prompt (about 550
-tokens) as a streamed chat completion at temperature 0, and records, per run:
+Starts `coli serve` with the given environment, sends the same fixed prompt (755
+tokens with Inkling-2's chat template) as a streamed chat completion at temperature 0, and records, per run:
 
   - time to first token (s) and prompt throughput (prompt tokens / time to first token);
   - decode throughput (generated tokens after the first / time from first to last token);
@@ -31,7 +31,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 COLI = os.path.join(os.path.dirname(HERE), "coli")
 
 # A fixed English prompt: a technical passage the model must summarise. Deterministic and
-# long enough (~550 tokens with the chat template) to measure prompt processing.
+# long enough (755 tokens with Inkling-2's chat template) to measure prompt processing.
 PASSAGE = (
     "A mixture-of-experts language model replaces the single feed-forward block of each "
     "transformer layer with many smaller feed-forward networks, the experts, and a router "

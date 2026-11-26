@@ -24,6 +24,7 @@ $configs = @(
     @{ label = "cpu";            env = @("COLI_VULKAN=0");                          args = @() },
     @{ label = "vulkan";         env = @("COLI_VULKAN=1");                          args = @() },
     @{ label = "cpu+npu";        env = @("COLI_VULKAN=0");                          args = @("--npu", "--npu-stats") },
+    @{ label = "cpu+npu-min2";   env = @("COLI_VULKAN=0", "COLI_NPU_MIN_ROWS=2");   args = @("--npu", "--npu-stats") },
     @{ label = "cpu+npu-min32";  env = @("COLI_VULKAN=0", "COLI_NPU_MIN_ROWS=32");  args = @("--npu", "--npu-stats") },
     @{ label = "vulkan+npu";     env = @("COLI_VULKAN=1");                          args = @("--npu", "--npu-stats") }
 )
