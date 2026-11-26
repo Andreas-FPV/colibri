@@ -429,6 +429,15 @@ engines ([docs/metal.md](docs/metal.md)). The release's macOS archive has
 for Kimi K3) turns it on, and without it they run on the CPU. From source,
 build with `METAL=1`; the one-step setup builds for the CPU.
 
+### Intel NPU (experimental)
+
+On Windows laptops with an Intel Core Ultra NPU ("Intel AI Boost"), an opt-in
+lane runs the routed experts of Inkling-2 GGUF **prompt chunks** on the NPU
+through OpenVINO (`coli run --npu`, an `NPU=1` build and the optional
+`coli_npu.dll` helper). Decode stays on the CPU, where it is faster. The lane
+checks that its graphs really execute on the NPU, computes in fp16, and is
+measured, limitations included, in [docs/intel-npu.md](docs/intel-npu.md).
+
 <a id="system-one-mode-ask-a-closed-question"></a>
 
 ## System One: a decision with a probability
@@ -797,6 +806,7 @@ well-controlled failure is worth more here than an unexplained fast number.
 | Vulkan: the expert tier, the dense chain, cards without Resizable BAR | [vulkan.md](docs/vulkan.md) |
 | CUDA, and Qwen3.6's CUDA tier | [cuda.md](docs/cuda.md), [qwen36-cuda-tier.md](docs/qwen36-cuda-tier.md) |
 | Apple Silicon, Windows | [metal.md](docs/metal.md), [windows.md](docs/windows.md) |
+| NPUs: Intel (OpenVINO), AMD Ryzen AI (XDNA2) | [intel-npu.md](docs/intel-npu.md), [xdna.md](docs/xdna.md) |
 | Tuning, the learning cache, prefetch | [tuning.md](docs/tuning.md) |
 | Speculative decoding: the MTP heads, prompt lookup, the gate | [speculative.md](docs/speculative.md) |
 | Several SSDs, several machines | [multidisk.md](docs/multidisk.md), [cluster.md](docs/cluster.md) |

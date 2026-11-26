@@ -528,3 +528,24 @@ tests/xdna_physical_probe <artifact-root> <path-to-coli_xdna.dll> [M-list]
 
 `M-list` defaults to `1,32,64`; pass `65,130,256` to qualify the M256 bucket
 through the same binary, or a value above 256 to see the decline.
+
+## Optional Intel NPU (OpenVINO) lane
+
+The same shape as the XDNA2 lane, for Intel Core Ultra NPUs: an optional
+compute lane, off by default, explicitly requested (`--npu`, `COLI_NPU=1`),
+never enabled by discovery. Details, measurements and limitations:
+[docs/intel-npu.md](docs/intel-npu.md).
+
+| concern | answer |
+|---|---|
+| does ordinary Colibri need OpenVINO? | **no**: no header, no import library, no DLL import |
+| does a machine need an NPU? | **no**: absence is a one-line message and the normal path |
+| where does OpenVINO live? | only inside an optional helper, `coli_npu.dll`, built with MSVC (`c/tools/build_npu_helper.cmd`) |
+| how is the helper reached? | resolved at run time by absolute path beside the executable; ABI version and every entry point checked |
+| which engine, which work? | `inkling` (`NPU=1`), Inkling-2 GGUF, the routed experts of prompt chunks; decode stays on the normal path |
+| can OpenVINO move the work elsewhere? | **no**: the helper reads `EXECUTION_DEVICES` of every compiled graph and refuses unless it is the requested device |
+
+`c/backend_npu.h` and `c/backend_npu.c` are the host-side owners and never
+include OpenVINO; `NPU=1` compiles them into `inkling` and defines `COLI_NPU`.
+A build without it answers an explicit request with
+*"requested, but this build has no NPU support"*.

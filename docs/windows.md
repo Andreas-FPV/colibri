@@ -342,6 +342,15 @@ available.
 → CUDA attention+dense 0.72 → **1.07 tok/s** with the GPU-resident pipeline at
 decode ([#273](https://github.com/JustVugg/colibri/issues/273), merged in #274).
 
+## Intel NPU (optional, via runtime DLL)
+
+The same split for Intel's NPU: OpenVINO's C++ API is MSVC-ABI, so it lives in
+an optional helper, `coli_npu.dll`, built with MSVC by
+`c\tools\build_npu_helper.cmd`, and loaded at run time by an engine built with
+`make -C c inkling NPU=1`. Experimental, Inkling-2 GGUF prompt chunks only,
+opt-in with `--npu`. Prerequisites, build steps and measurements:
+[intel-npu.md](intel-npu.md).
+
 ## AMD GPU
 
 The AMD sibling of the CUDA split above, and the same reasoning: MinGW gcc

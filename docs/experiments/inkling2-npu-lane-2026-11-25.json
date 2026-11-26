@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "hypothesis": "Running the routed experts of Inkling-2 prompt chunks on the Intel NPU through OpenVINO (COLI_NPU=1: experts grouped by expert, GGUF blocks decoded to f16 on the host with the vector unpack, one compiled graph per row bucket) raises prompt throughput over the CPU path on the same machine. tok_s here is PROMPT throughput: prompt tokens / time to first token. Decode is not changed by the lane (it stays on the CPU): baseline decode median 1.86 tok/s, trial 2.44 tok/s.",
+  "commit": "0d8128c4b8e7217518d72adb68007495d03fb194",
+  "model": "Inkling-2-Mini abliterated (orcarouter/Inkling-2-Mini-abliterated-GGUF, Mix-12G: IQ2_XXS/IQ2_S/IQ3_XXS/IQ3_S gate-up, IQ4_NL down), imported with coli import --mode link",
+  "command": "make -C c inkling.exe VK=1 NPU=1 (MSYS2 UCRT64 gcc 16.2, ARCH=x86-64-v3); c/tools/build_npu_helper.cmd (MSVC, OpenVINO 2026.3.1 pip wheel); powershell -File bench/run_npu_benchmarks.ps1 -Model <model>.colibri -Cap 32 -Runs 3 -OpenVino <openvino>/libs -Only cpu,cpu+npu. Each arm: coli serve --cap 32 [--npu --npu-stats], COLI_VULKAN=0, COLI_PREFIX_STORE=0, one warm-up request, then 3 streamed requests at temperature 0, max_tokens 100, prompt 'Request N. ' + the fixed passage (755 prompt tokens).",
+  "prompt_hash": "8c8b3e4031ec1d7fed56113d2ae32462ea6e5fef0524af0aeda292f8fff40704",
+  "hardware": {
+    "cpu": "Intel Core Ultra 5 325 (8 cores), HP OmniBook X Flip 14; NPU Intel AI Boost, DEVICE_ARCHITECTURE 5010, driver 32.0.100.5540",
+    "ram": "16 GB, shared with the iGPU and NPU; about 5 GB free during the runs, hence --cap 32",
+    "storage": "internal NVMe SSD, NTFS, model file read in place",
+    "os": "Windows 11 Home 26200, MSYS2 UCRT64 gcc 16.2, MSVC 2022 Build Tools, OpenVINO 2026.3.1"
+  },
+  "warmup_runs": 1,
+  "changed_variables": ["COLI_NPU"],
+  "baseline": {
+    "config": {"COLI_NPU": "0"},
+    "samples": {"tok_s": [3.6, 4.04, 4.39]},
+    "median_tok_s": 4.04,
+    "quality": {"method": "the engine's default CPU path is the reference; coherent text checked by reading", "passed": true},
+    "evidence": {"uri": "docs/experiments/inkling2-npu-lane-2026-11-25-raw.txt", "sha256": "ac60165cd562905acb00cb23d69e13959e4740aa921f1a636e42d293c019d294"}
+  },
+  "trial": {
+    "config": {"COLI_NPU": "1"},
+    "samples": {"tok_s": [18.78, 22.51, 22.5]},
+    "median_tok_s": 22.5,
+    "quality": {"method": "COLI_NPU_CHECK=4 against the engine's exact float path (GQ_EXACT=1), same weights and rows: relative L2 8.1e-4 to 9.2e-4 (fp16 device arithmetic); 1.0e-2 to 1.2e-2 against the default int8-activation CPU kernels, so text can diverge from the baseline after some tokens; coherent text checked by reading; the vector f16 decode is bit-identical to the scalar one (tests/test_npu_rows.c, and identical generated text per prompt before and after it)", "passed": true},
+    "evidence": {"uri": "docs/experiments/inkling2-npu-lane-2026-11-25-raw.txt", "sha256": "ac60165cd562905acb00cb23d69e13959e4740aa921f1a636e42d293c019d294"}
+  },
+  "outcome": "improvement"
+}

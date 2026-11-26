@@ -62,6 +62,8 @@ Flags may also be given **after** the subcommand. Most flags map onto an engine 
 | `--think` / `--no-think` | the model's default | `enable_thinking` in the chat request | Whether the model reasons before answering. Off, the prompt closes the reasoning block and the answer starts at the first word. |
 | `--effort` | the model's default | `reasoning_effort` in the chat request | `minimal`, `low`, `medium`, `high` or `xhigh`: how long the model reasons, on the families that take it. |
 | `--xdna` | off | `COLI_XDNA=1` | Experimental: run qualified GLM operations on the AMD XDNA2 NPU (reduced-precision BF16 path; output may differ). |
+| `--npu` | off | `COLI_NPU=1` | Experimental, Inkling-2 GGUF on Windows: run a prompt chunk's routed experts on an Intel NPU through OpenVINO (an `NPU=1` build and the optional `coli_npu.dll` helper; f16 weights, output may differ slightly). See [intel-npu.md](intel-npu.md). |
+| `--npu-stats` | off | `COLI_NPU_STATS=1` | With `--npu`: print, after each turn and at the end of a run, how many experts and rows ran on the NPU and on the CPU and where the time went, plus the expert cache's hits and misses and how many GiB of expert weights were copied from the GGUF file (from the OS file cache or the disk). |
 | `--cluster-workers` | `$CLUSTER_WORKERS` | `CLUSTER_WORKERS` | Comma-separated expert workers, `host:port,...`. |
 | `--cluster-coordinator` | `$CLUSTER_COORDINATOR` | worker discovery | Control-plane URL used to discover expert workers. |
 
