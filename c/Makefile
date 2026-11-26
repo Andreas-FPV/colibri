@@ -1111,6 +1111,9 @@ backend_loader.o: backend_loader.c .build-config
 xdna-obj: backend_xdna.o
 backend_xdna.o: backend_xdna.c .build-config
 	$(CC) $(CFLAGS) -c backend_xdna.c -o $@
+# The Intel NPU lane's host side (NPU=1): resolves coli_npu.dll at run time, links nothing.
+backend_npu.o: backend_npu.c .build-config
+	$(CC) $(CFLAGS) -c backend_npu.c -o $@
 
 # The optional helper on Linux: the ONLY target that compiles against XRT, and
 # never part of `all` or `check`. Needs the XRT SDK (headers + libxrt_coreutil)
@@ -2346,18 +2349,21 @@ tests/test_xdna_failure$(EXE): tests/test_xdna_failure.c colibri.c tests/backend
 NPU_FAKE_HELPERS = tests/npu_fake_helper$(XDNA_DLEXT) \
                    tests/npu_fake_helper_abi_old$(XDNA_DLEXT) \
                    tests/npu_fake_helper_partial$(XDNA_DLEXT)
-tests/npu_fake_helper$(XDNA_DLEXT): tests/npu_fake_helper.c backend_npu.h
+tests/npu_fake_helper$(XDNA_DLEXT): tests/npu_fake_helper.c
 	$(CC) $(CFLAGS) $(XDNA_SHARED) $< -o $@ $(LDFLAGS)
-tests/npu_fake_helper_abi_old$(XDNA_DLEXT): tests/npu_fake_helper.c backend_npu.h
+tests/npu_fake_helper_abi_old$(XDNA_DLEXT): tests/npu_fake_helper.c
 	$(CC) $(CFLAGS) -DFAKE_ABI_OLD $(XDNA_SHARED) $< -o $@ $(LDFLAGS)
-tests/npu_fake_helper_partial$(XDNA_DLEXT): tests/npu_fake_helper.c backend_npu.h
+tests/npu_fake_helper_partial$(XDNA_DLEXT): tests/npu_fake_helper.c
 	$(CC) $(CFLAGS) -DFAKE_PARTIAL $(XDNA_SHARED) $< -o $@ $(LDFLAGS)
-tests/test_npu_lane$(EXE): tests/test_npu_lane.c backend_npu.c backend_npu.h $(NPU_FAKE_HELPERS)
-	$(CC) $(CFLAGS) $< backend_npu.c -o $@ $(LDFLAGS)
+# backend_npu.c as its own object (one unit per command, so -MMD records its headers)
+tests/backend_npu_lane.o: backend_npu.c .build-config
+	$(CC) $(CFLAGS) -c backend_npu.c -o $@
+tests/test_npu_lane$(EXE): tests/test_npu_lane.c tests/backend_npu_lane.o $(NPU_FAKE_HELPERS)
+	$(CC) $(CFLAGS) $< tests/backend_npu_lane.o -o $@ $(LDFLAGS)
 # The lane's GGUF row -> f16 decode (backend_npu_rows.h): the vector path bit for bit against
 # the scalar one, every type it accelerates. Portable: no loader, no helper.
-tests/test_npu_rows$(EXE): tests/test_npu_rows.c backend_npu_rows.h backend_npu.c backend_npu.h ggml_quants.h
-	$(CC) $(CFLAGS) $< backend_npu.c -o $@ $(LDFLAGS)
+tests/test_npu_rows$(EXE): tests/test_npu_rows.c tests/backend_npu_lane.o
+	$(CC) $(CFLAGS) $< tests/backend_npu_lane.o -o $@ $(LDFLAGS)
 
 # NOT a test gate -- intentionally absent from TEST_BINS (its name does not match
 # the tests/test_*$(EXE) pattern the gate list is derived from). It needs a real
@@ -4002,7 +4008,7 @@ AUTODEP_OWN_FLAGS = bench_cuda_resident_batch bench_load_tq_peak_rss \
 ENGINE_RULES := $(foreach n,$(RULE_NAMES),$(if $(findstring /,$(n)),,$(if $(wildcard $(n).c),$(n))))
 AUTODEP_TESTS := $(patsubst tests/%,%,$(filter tests/%,$(RULE_NAMES)))
 AUTODEP_OBJS      = backend_vulkan.o vk_tier.o vk_chain.o backend_loader.o backend_xdna.o qwen36_tier.o \
-	tests/backend_xdna_lane.o tests/edge_runtime.o tests/edge_runtime_nocuda.o \
+	tests/backend_xdna_lane.o tests/backend_npu_lane.o backend_npu.o tests/edge_runtime.o tests/edge_runtime_nocuda.o \
 	tests/segment_runtime.o tests/segment_runtime_nocuda.o \
 	tests/segment_conformance_fixtures.o tests/deepseek_v4_native_quant.o \
 	qwen36_qpack.o qpack.o tests/qwen36_qpack.o tests/qpack_qwen36.o tests/qpack.o \
